@@ -1,0 +1,425 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+[ExecuteAlways]
+public class BoardLogic : MonoBehaviour
+{
+    [Header("Squares")]
+    public GameObject Squares;
+    public GameObject Pieces;
+    public GameObject HoverFilter;
+    public GameObject whiteSquarePrefab;
+    public GameObject darkSquarePrefab;
+
+    [Header("Pieces")]
+    public GameObject[] BlackPieces;
+    public GameObject[] WhitePieces;
+
+    [Header("UI")]
+    public TextMeshProUGUI turnText;
+    public GameObject WhitePawnPromotionDialog;
+    public GameObject BlackPawnPromotionDialog;
+    public GameObject UICanvas;
+    public TextMeshProUGUI CheckLabel;
+
+    private BoardState State;
+
+    private float BOARD_OFFSET = 3.5f;
+    private GameObject hoveringPiece = null;
+
+
+    // Start is called before the first frame update
+    void Start()
+    {
+        DrawBoardSquares();
+        State = new(WhitePieces, BlackPieces);
+        DrawPieces();
+    }
+
+    void DrawBoardSquares()
+    {
+        for (int i = Squares.transform.childCount - 1; i >= 0; i--)
+        {
+            if (Application.isPlaying)
+            {
+                Destroy(Squares.transform.GetChild(i).gameObject);
+            }
+            else
+            {
+                DestroyImmediate(Squares.transform.GetChild(i).gameObject);
+            }
+        }
+
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                GameObject square = (row + col) % 2 != 0 ? whiteSquarePrefab : darkSquarePrefab;
+                square = Instantiate(square, Vector3.zero, Quaternion.identity, Squares.transform);
+                square.transform.localPosition = new Vector3(row - BOARD_OFFSET, col - BOARD_OFFSET, 0);
+            }
+        }
+    }
+
+    void DrawPieces()
+    {
+        for (int i = Pieces.transform.childCount - 1; i >= 0; i--)
+        {
+            if (Application.isPlaying)
+            {
+                Destroy(Pieces.transform.GetChild(i).gameObject);
+            }
+            else
+            {
+                DestroyImmediate(Pieces.transform.GetChild(i).gameObject);
+            }
+        }
+
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                if (State.getPos(col,row) == null) continue;
+                GameObject piece = Instantiate(State.getPos(col,row), Vector3.zero, Quaternion.identity, Pieces.transform);
+                piece.transform.localPosition = new Vector3(col - BOARD_OFFSET, row - BOARD_OFFSET, 0);
+                piece.transform.localScale = Vector3.one * 0.75f;
+            }
+        }
+    }
+
+    enum Mode {
+        Default,
+        Promotion,
+        GameOver
+    };
+
+    Mode GameMode = Mode.Default;
+    private bool whiteTurn = true;
+    private bool isChecked = false;
+    void Update()
+    {
+        if (!Application.isPlaying) return;
+        switch (GameMode)
+        {
+            case Mode.Default:
+                HandleInput();
+                break;
+            case Mode.Promotion:
+                HandlePawnPromotion();
+                break;
+            case Mode.GameOver:
+                break;
+        }
+    }
+
+    void HandleInput()
+    {
+        if (whiteTurn)
+        {
+            if (Input.GetMouseButtonDown(0) && !mouseDown)
+                SelectHoveringPiece();
+            else if (Input.GetMouseButtonUp(0) && mouseDown)
+                PlaceHoveredPiece();
+            else if (mouseDown && hoveringPiece != null)
+                UpdateHoveredPiecePos();
+        }
+        else
+        {
+            // Black makes a random move
+            MakeRandomMove();
+        }
+        
+    }
+
+    void MakeRandomMove()
+    {
+        List<(Vector2Int from, Vector2Int to, GameObject piece)> possibleMoves = new();
+        GameObject[] currentPlayerPieces = whiteTurn ? WhitePieces : BlackPieces;
+        
+        // Find all possible moves for the current player
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                GameObject piece = State.getPos(col, row);
+                if (piece == null || !currentPlayerPieces.Contains(piece)) continue;
+                
+                // Check all possible moves for this piece
+                for (int targetRow = 0; targetRow < 8; targetRow++)
+                {
+                    for (int targetCol = 0; targetCol < 8; targetCol++)
+                    {
+                        if (State.CanPieceMoveToPosition(piece, new Vector2Int(col, row), new Vector2Int(targetCol, targetRow), whiteTurn))
+                        {
+                            bool canMove = true;
+                            
+                            // Check if this move would leave the king in check
+                            if (isChecked)
+                            {
+                                BoardState testState = new BoardState(State);
+                                testState.setPos(col, row, null);
+                                testState.setPos(targetCol, targetRow, piece);
+                                if (testState.IsChecked(whiteTurn))
+                                {
+                                    canMove = false;
+                                }
+                            }
+                            
+                            if (canMove)
+                            {
+                                possibleMoves.Add((new Vector2Int(col, row), new Vector2Int(targetCol, targetRow), piece));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // If no moves available, it's checkmate or stalemate
+        if (possibleMoves.Count == 0)
+        {
+            if (isChecked)
+            {
+                GameMode = Mode.GameOver;
+                CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
+                turnText.text = "";
+            }
+            return;
+        }
+        
+        // Pick a random move
+        int randomIndex = UnityEngine.Random.Range(0, possibleMoves.Count);
+        var randomMove = possibleMoves[randomIndex];
+        
+        // Execute the move
+        State.setPos(randomMove.from.x, randomMove.from.y, null); // Remove piece from original position
+        State.setPos(randomMove.to.x, randomMove.to.y, randomMove.piece); // Place piece at new position
+        
+        // Check for pawn promotion
+        if (randomMove.piece == BlackPieces[5] && randomMove.to.y == 0 || randomMove.piece == WhitePieces[5] && randomMove.to.y == 7)
+        {
+            // Auto-promote to queen for AI
+            GameObject queenPiece = whiteTurn ? WhitePieces[3] : BlackPieces[3];
+            State.setPos(randomMove.to.x, randomMove.to.y, queenPiece);
+        }
+        
+        whiteTurn = !whiteTurn;
+        UpdateTurnText(whiteTurn);
+        isChecked = State.IsChecked(whiteTurn);
+        CheckLabel.alpha = 0;
+        if (isChecked) 
+        {
+            CheckLabel.alpha = 100;
+            // Check for checkmate
+            if (IsCheckmate())
+            {
+                GameMode = Mode.GameOver;
+                CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
+                turnText.text = "";
+            }
+        }
+        
+        DrawPieces();
+    }
+
+    void randomPossibleMove(GameObject hoverPrefab, Vector2Int pos)
+    {
+        // This method can be removed as it's replaced by MakeRandomMove()
+    }
+
+    private Vector2Int pos;
+    private bool mouseDown = false;
+    private GameObject hoverPrefab;
+    void SelectHoveringPiece()
+    {
+        pos = GetclickCords();
+        if (pos.x < 0 || pos.x > 7 || pos.y < 0 || pos.y > 7 ) return;
+        hoverPrefab = State.getPos(pos.x, pos.y);
+        if (hoverPrefab == null || whiteTurn != WhitePieces.Contains(hoverPrefab)) return;
+        mouseDown = true;
+        Vector3 mousepos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        hoveringPiece = Instantiate(hoverPrefab, new Vector3(mousepos.x, mousepos.y, this.Pieces.transform.position.z - 1), Quaternion.identity);
+        hoveringPiece.transform.localScale = Vector3.one * 0.9f;
+        State.setPos(pos.x, pos.y, null);
+        DrawPieces();
+        DrawPossibleMoves(hoverPrefab, pos);
+    }
+
+    void PlaceHoveredPiece()
+    {
+        Vector2Int newPos = GetclickCords();
+        if (State.CanPieceMoveToPosition(hoverPrefab, pos, newPos, whiteTurn))
+        {
+            bool canMove = true;
+            
+            // Check if this move would leave the king in check (same logic as DrawPossibleMoves)
+            if (isChecked)
+            {
+                BoardState testState = new BoardState(State);
+                testState.setPos(pos.x, pos.y, null);
+                testState.setPos(newPos.x, newPos.y, hoverPrefab);
+                if (testState.IsChecked(whiteTurn))
+                {
+                    canMove = false;
+                }
+            }
+            
+            if (canMove)
+            {
+                State.MovePiece(newPos, pos, hoverPrefab);
+                // check for pawn promotion
+                if (hoverPrefab == BlackPieces[5] && newPos.y == 0 || hoverPrefab == WhitePieces[5] && newPos.y == 7)
+                {
+                    GameMode = Mode.Promotion;
+                    screenDrawn = false;
+                    pos = newPos;
+                }
+                whiteTurn = !whiteTurn;
+                UpdateTurnText(whiteTurn);
+                isChecked = State.IsChecked(whiteTurn);
+                CheckLabel.alpha = 0;
+                if (isChecked) 
+                {
+                    CheckLabel.alpha = 100;
+                    // Check for checkmate
+                    if (IsCheckmate())
+                    {
+                        GameMode = Mode.GameOver;
+                        CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
+                        turnText.text = "";
+                    }
+                }
+            }
+            else
+            {
+                State.setPos(pos.x, pos.y, hoverPrefab);
+            }
+        }
+        else
+        {
+            State.setPos(pos.x, pos.y, hoverPrefab);
+        }
+        DrawPieces();
+        Destroy(hoveringPiece);
+        mouseDown = false;
+    }
+
+    Vector2Int GetclickCords()
+    {
+        Vector3 mousepos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        mousepos += new Vector3(4, 4, 0);
+        return new Vector2Int(Mathf.FloorToInt(mousepos.x), Mathf.FloorToInt(mousepos.y));
+    }
+
+    void UpdateHoveredPiecePos()
+    {
+        Vector3 mousepos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        hoveringPiece.transform.position = new Vector3(mousepos.x, mousepos.y, this.Pieces.transform.position.z - 1);
+        hoveringPiece.transform.localScale = Vector3.one * 0.9f;
+    }
+
+    void UpdateTurnText(bool whiteTurn)
+    {
+        string text = whiteTurn ? "White's Turn" : "Black's turn";
+        turnText.SetText(text);
+        turnText.color = whiteTurn ? Color.white : Color.black;  
+    }
+
+    bool screenDrawn = false;
+    void HandlePawnPromotion()
+    {
+        if (screenDrawn) return;
+
+        GameObject promotionDialog = Instantiate(!whiteTurn ? WhitePawnPromotionDialog : BlackPawnPromotionDialog, Vector3.zero, Quaternion.identity, this.UICanvas.transform);
+        promotionDialog.transform.localPosition = Vector3.zero;
+        screenDrawn = true;
+
+        Button[] buttons = promotionDialog.GetComponentsInChildren<Button>();
+
+        bool isWhite = !whiteTurn;
+
+        buttons[0].onClick.AddListener(() => PromotePawn(isWhite ? WhitePieces[3] : BlackPieces[3], promotionDialog));
+        buttons[1].onClick.AddListener(() => PromotePawn(isWhite ? WhitePieces[1] : BlackPieces[1], promotionDialog));
+        buttons[2].onClick.AddListener(() => PromotePawn(isWhite ? WhitePieces[0] : BlackPieces[0], promotionDialog));
+        buttons[3].onClick.AddListener(() => PromotePawn(isWhite ? WhitePieces[2] : BlackPieces[2], promotionDialog));
+    }
+
+    void PromotePawn(GameObject chosenPiece, GameObject promotionDialog)
+    {
+        GameMode = Mode.Default;
+        Destroy(promotionDialog);
+        State.setPos(pos.x, pos.y, chosenPiece);
+        DrawPieces();
+    }
+
+    void DrawPossibleMoves(GameObject hoverPrefab, Vector2Int pos)
+    {
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                if (State.CanPieceMoveToPosition(hoverPrefab, pos, new Vector2Int(col, row), whiteTurn))
+                {
+                    if (isChecked)
+                    {
+                        BoardState testState = new BoardState(State);
+                        testState.setPos(pos.x, pos.y, null);
+                        testState.setPos(col, row, hoverPrefab);
+                        if (!testState.IsChecked(whiteTurn))
+                        {
+                            var test = Instantiate(HoverFilter, Vector3.zero, Quaternion.identity, this.Pieces.transform);
+                            test.transform.localPosition = new Vector3(col - BOARD_OFFSET, row - BOARD_OFFSET, 0.5f);
+                        }
+                    }
+                    else
+                    {
+                        var test = Instantiate(HoverFilter, Vector3.zero, Quaternion.identity, this.Pieces.transform);
+                        test.transform.localPosition = new Vector3(col - BOARD_OFFSET, row - BOARD_OFFSET, 0.5f);
+                    }
+                }
+            }
+        }
+    }
+
+    bool IsCheckmate()
+    {
+        // If not in check, it's not checkmate
+        if (!isChecked) return false;
+        
+        // Check if any piece of the current player can make a legal move
+        GameObject[] currentPlayerPieces = whiteTurn ? WhitePieces : BlackPieces;
+        
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                GameObject piece = State.getPos(col, row);
+                if (piece == null || !currentPlayerPieces.Contains(piece)) continue;
+                
+                // Check all possible moves for this piece
+                for (int targetRow = 0; targetRow < 8; targetRow++)
+                {
+                    for (int targetCol = 0; targetCol < 8; targetCol++)
+                    {
+                        if (State.CanPieceMoveToPosition(piece, new Vector2Int(col, row), new Vector2Int(targetCol, targetRow), whiteTurn))
+                        {
+                            // Test if this move would get out of check
+                            BoardState testState = new BoardState(State);
+                            testState.setPos(col, row, null);
+                            testState.setPos(targetCol, targetRow, piece);
+                            if (!testState.IsChecked(whiteTurn))
+                            {
+                                return false; // Found a legal move, not checkmate
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        return true; // No legal moves found, it's checkmate
+    }
+}
