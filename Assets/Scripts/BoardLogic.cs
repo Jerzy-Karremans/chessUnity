@@ -64,7 +64,7 @@ public class BoardLogic : MonoBehaviour
 
     async void InitializeWebSocket()
     {
-        websocket = new WebSocket("ws://77.250.232.176:25561");
+        websocket = new WebSocket("wss://ws.jerzykarremans.com");
 
         websocket.OnOpen += () =>
         {
