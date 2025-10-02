@@ -5,7 +5,8 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
-using WebSocketSharp;
+using NativeWebSocket;
+
 [ExecuteAlways]
 public class BoardLogic : MonoBehaviour
 {
@@ -41,8 +42,7 @@ public class BoardLogic : MonoBehaviour
     private float BOARD_OFFSET = 3.5f;
     private GameObject hoveringPiece = null;
     private string pendingMoveJson = null;
-    WebSocket ws;
-
+    WebSocket websocket;
 
     // Start is called before the first frame update
     void Start()
@@ -57,14 +57,37 @@ public class BoardLogic : MonoBehaviour
             Application.runInBackground = true;
             botThinking = true;
             GameSettings.boardFlipped = true;
-            ws = new WebSocket("ws://77.250.232.176:25561");
-            ws.OnMessage += (sender, e) =>
-            {
-                pendingMoveJson = e.Data;
-            };
-            ws.Connect();
+            InitializeWebSocket();
             DrawPieces();
         }
+    }
+
+    async void InitializeWebSocket()
+    {
+        websocket = new WebSocket("ws://77.250.232.176:25561");
+
+        websocket.OnOpen += () =>
+        {
+            Debug.Log("WebSocket connection opened!");
+        };
+
+        websocket.OnError += (e) =>
+        {
+            Debug.LogError($"WebSocket error: {e}");
+        };
+
+        websocket.OnClose += (e) =>
+        {
+            Debug.Log($"WebSocket connection closed: {e}");
+        };
+
+        websocket.OnMessage += (bytes) =>
+        {
+            var message = System.Text.Encoding.UTF8.GetString(bytes);
+            pendingMoveJson = message;
+        };
+
+        await websocket.Connect();
     }
 
     void HandleReceivedMove(string moveJson)
@@ -79,9 +102,14 @@ public class BoardLogic : MonoBehaviour
             // Switch turns and update UI
             whiteTurn = !whiteTurn;
             UpdateTurnText(whiteTurn);
+
+            audioSource.clip = move;
+            if (State.capture) audioSource.clip = capture;
+            audioSource.Play();
             
             // Redraw the board with new state
             DrawPieces();
+            DrawLastMove(State.pos, State.newPos, State.capture);
             
             // Check for check/checkmate
             isChecked = State.IsChecked(whiteTurn);
@@ -165,16 +193,14 @@ public class BoardLogic : MonoBehaviour
             }
         }
     }
-
     enum GameStage
     {
         Default,
         Promotion,
         GameOver,
         WaitingForOpponent,
-        OpponentDisconnected // Add new game stage for opponent disconnection
+        OpponentDisconnected
     };
-
     GameStage GameMode = GameStage.Default;
     private bool whiteTurn = true;
     private bool isChecked = false;
@@ -182,6 +208,13 @@ public class BoardLogic : MonoBehaviour
     void Update()
     {
         if (!Application.isPlaying) return;
+
+        #if !UNITY_WEBGL || UNITY_EDITOR
+        if (websocket != null)
+        {
+            websocket.DispatchMessageQueue();
+        }
+        #endif
 
         if (pendingMoveJson != null)
         {
@@ -221,7 +254,7 @@ public class BoardLogic : MonoBehaviour
                 break;
             case GameStage.WaitingForOpponent:
                 break;
-            case GameStage.OpponentDisconnected: // Add this new stage
+            case GameStage.OpponentDisconnected:
                 break;
         }
     }
@@ -342,10 +375,12 @@ public class BoardLogic : MonoBehaviour
             GameObject queenPiece = whiteTurn ? WhitePieces[3] : BlackPieces[3];
             State.setPos(randomMove.to.x, randomMove.to.y, queenPiece);
         }
-        NextTurn();
+        NextTurn(isCapture, randomMove.from, randomMove.to);
     }
 
     private Vector2Int pos;
+    private Vector2Int promotionNewPos; // Add this
+    private bool promotionIsCapture;   // Add this
     private bool mouseDown = false;
     private GameObject hoverPrefab;
     void SelectHoveringPiece()
@@ -378,20 +413,30 @@ public class BoardLogic : MonoBehaviour
             return;
         }
 
-
-        bool isCapture = State.MovePiece(newPos, pos, hoverPrefab);
-        DrawLastMove(pos, newPos, isCapture);
-        // check for pawn promotion
-        if (hoverPrefab == BlackPieces[5] && newPos.y == 0 || hoverPrefab == WhitePieces[5] && newPos.y == 7)
-        {
-            GameMode = GameStage.Promotion;
-            screenDrawn = false;
-            pos = newPos;
-        }
+    bool isCapture = State.MovePiece(newPos, pos, hoverPrefab);
+    DrawLastMove(pos, newPos, isCapture);
+    
+    // check for pawn promotion
+    if (hoverPrefab == BlackPieces[5] && newPos.y == 0 || hoverPrefab == WhitePieces[5] && newPos.y == 7)
+    {
+        // Store the move data for after promotion
+        promotionNewPos = newPos;
+        promotionIsCapture = isCapture;
+        
+        GameMode = GameStage.Promotion;
+        screenDrawn = false;
+        pos = newPos;
+        
         Destroy(hoveringPiece);
         mouseDown = false;
-        NextTurn();
+        // Don't call NextTurn yet - wait for promotion selection
+        return;
     }
+    
+    Destroy(hoveringPiece);
+    mouseDown = false;
+    NextTurn(isCapture, pos, newPos);
+}
 
     void HandleCheck()
     {
@@ -400,13 +445,6 @@ public class BoardLogic : MonoBehaviour
         if (isChecked)
         {
             CheckLabel.alpha = 100;
-            // Check for checkmate
-            if (IsCheckmate())
-            {
-                GameMode = GameStage.GameOver;
-                CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
-                turnText.text = "";
-            }
         }
     }
 
@@ -425,22 +463,32 @@ public class BoardLogic : MonoBehaviour
         hoveringPiece.transform.localScale = Vector3.one * 0.9f;
     }
 
-    void NextTurn()
+    async void NextTurn(bool isCapture, Vector2Int pos, Vector2Int newPos, bool pause = false)
     {
         whiteTurn = !whiteTurn;
         UpdateTurnText(whiteTurn);
         isChecked = State.IsChecked(whiteTurn);
         DrawPieces();
         
-        // Send move to opponent in multiplayer mode (after making your move)
-        if (GameSettings.enemyType == GameSettings.EnemyType.Multiplayer && ws != null && ws.ReadyState == WebSocketState.Open)
+        // Send move to opponent in multiplayer mode BEFORE checking for game over
+        if (GameSettings.enemyType == GameSettings.EnemyType.Multiplayer && websocket != null && websocket.State == WebSocketState.Open && !pause)
         {
-            string moveJson = State.ToJson();
-            ws.Send(moveJson);
+            string moveJson = State.ToJson(isCapture, pos, newPos);
+            await websocket.SendText(moveJson);
             Debug.Log($"Sent move to opponent: {moveJson}");
         }
         
-        // stalemate
+        // Check for checkmate AFTER sending the move
+        if (isChecked && IsCheckmate())
+        {
+            GameMode = GameStage.GameOver;
+            CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
+            turnText.text = "";
+            CheckLabel.alpha = 100;
+            return; // Don't check stalemate if already checkmate
+        }
+        
+        // Check for stalemate
         if (State.IsStalemate(whiteTurn))
         {
             HandleStalemate();
@@ -468,28 +516,33 @@ public class BoardLogic : MonoBehaviour
     void HandlePawnPromotion()
     {
         if (screenDrawn) return;
+        bool isWhite = !whiteTurn;
 
-        GameObject promotionDialog = Instantiate(!whiteTurn ? WhitePawnPromotionDialog : BlackPawnPromotionDialog, Vector3.zero, Quaternion.identity, this.UICanvas.transform);
+        GameObject promotionDialog = Instantiate(whiteTurn ? WhitePawnPromotionDialog : BlackPawnPromotionDialog, Vector3.zero, Quaternion.identity, this.UICanvas.transform);
         promotionDialog.transform.localPosition = Vector3.zero;
         screenDrawn = true;
 
         Button[] buttons = promotionDialog.GetComponentsInChildren<Button>();
 
-        bool isWhite = !whiteTurn;
+        
 
-        buttons[0].onClick.AddListener(() => PromotePawn(isWhite ? WhitePieces[3] : BlackPieces[3], promotionDialog));
-        buttons[1].onClick.AddListener(() => PromotePawn(isWhite ? WhitePieces[1] : BlackPieces[1], promotionDialog));
-        buttons[2].onClick.AddListener(() => PromotePawn(isWhite ? WhitePieces[0] : BlackPieces[0], promotionDialog));
-        buttons[3].onClick.AddListener(() => PromotePawn(isWhite ? WhitePieces[2] : BlackPieces[2], promotionDialog));
+        buttons[0].onClick.AddListener(() => PromotePawn(!isWhite ? WhitePieces[3] : BlackPieces[3], promotionDialog));
+        buttons[1].onClick.AddListener(() => PromotePawn(!isWhite ? WhitePieces[1] : BlackPieces[1], promotionDialog));
+        buttons[2].onClick.AddListener(() => PromotePawn(!isWhite ? WhitePieces[0] : BlackPieces[0], promotionDialog));
+        buttons[3].onClick.AddListener(() => PromotePawn(!isWhite ? WhitePieces[2] : BlackPieces[2], promotionDialog));
     }
 
     void PromotePawn(GameObject chosenPiece, GameObject promotionDialog)
     {
         GameMode = GameStage.Default;
         Destroy(promotionDialog);
+        screenDrawn = false;
+        
         State.setPos(pos.x, pos.y, chosenPiece);
         DrawPieces();
-        HandleCheck();
+        
+        // Now complete the turn with the promotion
+        NextTurn(promotionIsCapture, pos, promotionNewPos);
     }
 
     void DrawPossibleMoves(GameObject hoverPrefab, Vector2Int pos)
@@ -590,5 +643,21 @@ public class BoardLogic : MonoBehaviour
     float drawY(float y)
     {
         return GameSettings.boardFlipped ? -y : y;
+    }
+
+    async void OnDestroy()
+    {
+        if (websocket != null)
+        {
+            await websocket.Close();
+        }
+    }
+
+    private async void OnApplicationPause(bool pauseStatus)
+    {
+        if (pauseStatus && websocket != null)
+        {
+            await websocket.Close();
+        }
     }
 }

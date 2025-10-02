@@ -1,5 +1,17 @@
-const web_socket = require("ws")
+const web_socket = require("ws");
+const express = require("express")
+const path = require("path")
+
+const app = express();
 const PORT = 25561;
+const http_port = 3000;
+
+app.use(express.static(path.join(__dirname, "public")));
+app.listen(http_port, () => {
+    console.log(`Server is running on http://localhost:${PORT}`);
+});
+
+
 const socket = new web_socket.Server({ port:PORT }, () => {
     console.log("server started");
 })

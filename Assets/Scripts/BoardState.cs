@@ -11,6 +11,9 @@ public class BoardStateData
     public int[,] boardState = new int[8, 8];
     public bool[,] castleMoved = new bool[2, 3];
     public int enPassantPossible = -1;
+    public bool capture;
+    public Vector2Int pos;
+    public Vector2Int newPos;
 }
 
 public class BoardState
@@ -18,6 +21,9 @@ public class BoardState
     private readonly GameObject[,] boardState = new GameObject[8, 8];
     private readonly GameObject[] WhitePieces;
     private readonly GameObject[] BlackPieces;
+    public bool capture;
+    public Vector2Int pos;
+    public Vector2Int newPos;
     private readonly bool[,] castleMoved = new bool[2, 3] { { false, false, false }, { false, false, false } };
     private int enPassantPossible = -1;
 
@@ -476,10 +482,13 @@ public class BoardState
         return null;
     }
 
-    public string ToJson()
+    public string ToJson(bool isCaptureMove, Vector2Int pos, Vector2Int newPos)
     {
         BoardStateData data = new();
         data.enPassantPossible = enPassantPossible;
+        data.capture = isCaptureMove;
+        data.pos = pos;
+        data.newPos = newPos;
         for (int row = 0; row < 8; row++)
         {
             for (int col = 0; col < 8; col++)
@@ -501,6 +510,8 @@ public class BoardState
     {
         BoardStateData data = JsonConvert.DeserializeObject<BoardStateData>(json);
         BoardState state = new BoardState(WhitePieces, BlackPieces, true);
+        state.pos = data.pos;
+        state.newPos = data.newPos;
 
         for (int row = 0; row < 8; row++)
         {
@@ -520,6 +531,7 @@ public class BoardState
         }
 
         state.enPassantPossible = data.enPassantPossible;
+        state.capture = data.capture;
         return state;
     }
 }
