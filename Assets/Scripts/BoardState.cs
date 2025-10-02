@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Unity.Collections;
 using Unity.Mathematics;
 using UnityEngine;
@@ -53,6 +54,63 @@ public class BoardState
             UpdateCastleMoved(newPos, pos, hoverPrefab);
 
         setPos(newPos.x, newPos.y, hoverPrefab);
+    }
+
+    public bool IsStalemate(bool whiteTurn)
+    {
+
+        if (IsChecked(whiteTurn)) return false;
+
+        // Check if the current player has any legal moves
+        GameObject[] currentPlayerPieces = whiteTurn ? WhitePieces : BlackPieces;
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+
+                GameObject piece = boardState[row, col];
+                bool found = false;
+                foreach (var p in currentPlayerPieces)
+                {
+                    if (p == piece)
+                    {
+                        found = true;
+                        break;
+                    }
+                }
+                if (piece == null || !found) continue;
+
+                // Check all possible moves for this piece
+                for (int targetRow = 0; targetRow < 8; targetRow++)
+                {
+                    for (int targetCol = 0; targetCol < 8; targetCol++)
+                    {
+                        if (CanPieceMoveToPosition(piece, new Vector2Int(col, row), new Vector2Int(targetCol, targetRow), whiteTurn))
+                        {
+                            // Test if this move would leave the king in check
+                            BoardState testState = new BoardState(this);
+                            testState.setPos(col, row, null);
+                            testState.setPos(targetCol, targetRow, piece);
+
+                            if (!testState.IsChecked(whiteTurn))
+                            {
+                                int count = 0;
+                                for (int i = 0; i < 8; i++)
+                                {
+                                    for (int j = 0; j < 8; j++)
+                                    {
+                                        if (boardState[i, j] != null) count++;
+                                    }
+                                }
+
+                                return count <= 2; // Found a legal move, not stalemate
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return true; // No legal moves found and not in check = stalemate
     }
 
     void UpdateCastleMoved(Vector2Int newPos, Vector2Int pos, GameObject hoverPrefab)

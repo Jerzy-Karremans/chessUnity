@@ -5,14 +5,18 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 [ExecuteAlways]
+[RequireComponent(typeof(ServerScript))]
 public class BoardLogic : MonoBehaviour
 {
+    private static WaitForSeconds _waitForSeconds0_5 = new WaitForSeconds(0.5f);
     [Header("Squares")]
     public GameObject Squares;
     public GameObject Pieces;
     public GameObject HoverFilter;
     public GameObject whiteSquarePrefab;
     public GameObject darkSquarePrefab;
+    public GameObject moveFilter;
+    private GameObject[] activeFilters;
 
     [Header("Pieces")]
     public GameObject[] BlackPieces;
@@ -24,8 +28,10 @@ public class BoardLogic : MonoBehaviour
     public GameObject BlackPawnPromotionDialog;
     public GameObject UICanvas;
     public TextMeshProUGUI CheckLabel;
+    public EnemyType enemyType = EnemyType.SingleScreen;
 
     private BoardState State;
+    private ServerScript serverScript;
 
     private float BOARD_OFFSET = 3.5f;
     private GameObject hoveringPiece = null;
@@ -34,9 +40,12 @@ public class BoardLogic : MonoBehaviour
     // Start is called before the first frame update
     void Start()
     {
+        activeFilters = new GameObject[2];
+        
         DrawBoardSquares();
         State = new(WhitePieces, BlackPieces);
         DrawPieces();
+        serverScript = GetComponent<ServerScript>();
     }
 
     void DrawBoardSquares()
@@ -89,49 +98,89 @@ public class BoardLogic : MonoBehaviour
             }
         }
     }
-
-    enum Mode {
+    public enum EnemyType
+    {
+        SingleScreen,
+        RandomBot,
+        Multiplayer
+    }
+    
+    enum GameStage
+    {
         Default,
         Promotion,
         GameOver
     };
 
-    Mode GameMode = Mode.Default;
+    GameStage GameMode = GameStage.Default;
     private bool whiteTurn = true;
     private bool isChecked = false;
+    private bool botThinking = false; // Add this flag
     void Update()
     {
         if (!Application.isPlaying) return;
         switch (GameMode)
         {
-            case Mode.Default:
+            case GameStage.Default:
                 HandleInput();
                 break;
-            case Mode.Promotion:
+            case GameStage.Promotion:
                 HandlePawnPromotion();
                 break;
-            case Mode.GameOver:
+            case GameStage.GameOver:
                 break;
         }
     }
 
     void HandleInput()
     {
-        if (whiteTurn)
+        switch (enemyType)
         {
-            if (Input.GetMouseButtonDown(0) && !mouseDown)
-                SelectHoveringPiece();
-            else if (Input.GetMouseButtonUp(0) && mouseDown)
-                PlaceHoveredPiece();
-            else if (mouseDown && hoveringPiece != null)
-                UpdateHoveredPiecePos();
+            case EnemyType.SingleScreen:
+                ScreenInputHandeler();
+                return;
+            case EnemyType.RandomBot:
+                if (whiteTurn) 
+                {
+                    ScreenInputHandeler();
+                }
+                else if (!botThinking) // Only start thinking if not already thinking
+                {
+                    botThinking = true;
+                    StartCoroutine(MakeRandomMoveWithDelay());
+                }
+                return;
+            case EnemyType.Multiplayer:
+                throw new NotImplementedException();
         }
-        else
+    }
+
+    void DrawLastMove(Vector2Int pos, Vector2Int newPos)
+    {
+        for (int i = 0; i < activeFilters.Length; i++)
         {
-            // Black makes a random move
-            MakeRandomMove();
+            Destroy(activeFilters[i]);
         }
-        
+
+        activeFilters[0] = Instantiate(moveFilter, new Vector3(pos.x - BOARD_OFFSET, pos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
+        activeFilters[1] = Instantiate(moveFilter,new Vector3(newPos.x - BOARD_OFFSET, newPos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
+    }
+
+    System.Collections.IEnumerator MakeRandomMoveWithDelay()
+    {
+        yield return _waitForSeconds0_5;
+        MakeRandomMove();
+        botThinking = false; // Reset the flag after making the move
+    }
+
+    void ScreenInputHandeler()
+    {
+        if (Input.GetMouseButtonDown(0) && !mouseDown)
+            SelectHoveringPiece();
+        else if (Input.GetMouseButtonUp(0) && mouseDown)
+            PlaceHoveredPiece();
+        else if (mouseDown && hoveringPiece != null)
+            UpdateHoveredPiecePos();
     }
 
     void MakeRandomMove()
@@ -183,7 +232,7 @@ public class BoardLogic : MonoBehaviour
         {
             if (isChecked)
             {
-                GameMode = Mode.GameOver;
+                GameMode = GameStage.GameOver;
                 CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
                 turnText.text = "";
             }
@@ -197,6 +246,7 @@ public class BoardLogic : MonoBehaviour
         // Execute the move
         State.setPos(randomMove.from.x, randomMove.from.y, null); // Remove piece from original position
         State.setPos(randomMove.to.x, randomMove.to.y, randomMove.piece); // Place piece at new position
+        DrawLastMove(randomMove.from, randomMove.to);
         
         // Check for pawn promotion
         if (randomMove.piece == BlackPieces[5] && randomMove.to.y == 0 || randomMove.piece == WhitePieces[5] && randomMove.to.y == 7)
@@ -205,29 +255,7 @@ public class BoardLogic : MonoBehaviour
             GameObject queenPiece = whiteTurn ? WhitePieces[3] : BlackPieces[3];
             State.setPos(randomMove.to.x, randomMove.to.y, queenPiece);
         }
-        
-        whiteTurn = !whiteTurn;
-        UpdateTurnText(whiteTurn);
-        isChecked = State.IsChecked(whiteTurn);
-        CheckLabel.alpha = 0;
-        if (isChecked) 
-        {
-            CheckLabel.alpha = 100;
-            // Check for checkmate
-            if (IsCheckmate())
-            {
-                GameMode = Mode.GameOver;
-                CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
-                turnText.text = "";
-            }
-        }
-        
-        DrawPieces();
-    }
-
-    void randomPossibleMove(GameObject hoverPrefab, Vector2Int pos)
-    {
-        // This method can be removed as it's replaced by MakeRandomMove()
+        NextTurn();
     }
 
     private Vector2Int pos;
@@ -251,60 +279,57 @@ public class BoardLogic : MonoBehaviour
     void PlaceHoveredPiece()
     {
         Vector2Int newPos = GetclickCords();
-        if (State.CanPieceMoveToPosition(hoverPrefab, pos, newPos, whiteTurn))
+        if (!State.CanPieceMoveToPosition(hoverPrefab, pos, newPos, whiteTurn))
         {
-            bool canMove = true;
-            
-            // Check if this move would leave the king in check (same logic as DrawPossibleMoves)
-            if (isChecked)
-            {
-                BoardState testState = new BoardState(State);
-                testState.setPos(pos.x, pos.y, null);
-                testState.setPos(newPos.x, newPos.y, hoverPrefab);
-                if (testState.IsChecked(whiteTurn))
-                {
-                    canMove = false;
-                }
-            }
-            
-            if (canMove)
-            {
-                State.MovePiece(newPos, pos, hoverPrefab);
-                // check for pawn promotion
-                if (hoverPrefab == BlackPieces[5] && newPos.y == 0 || hoverPrefab == WhitePieces[5] && newPos.y == 7)
-                {
-                    GameMode = Mode.Promotion;
-                    screenDrawn = false;
-                    pos = newPos;
-                }
-                whiteTurn = !whiteTurn;
-                UpdateTurnText(whiteTurn);
-                isChecked = State.IsChecked(whiteTurn);
-                CheckLabel.alpha = 0;
-                if (isChecked) 
-                {
-                    CheckLabel.alpha = 100;
-                    // Check for checkmate
-                    if (IsCheckmate())
-                    {
-                        GameMode = Mode.GameOver;
-                        CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
-                        turnText.text = "";
-                    }
-                }
-            }
-            else
+            Destroy(hoveringPiece);
+            mouseDown = false;
+            State.setPos(pos.x, pos.y, hoverPrefab);
+            DrawPieces();
+            return;
+        }
+
+        // Check if this move would leave the king in check (same logic as DrawPossibleMoves)
+        if (isChecked)
+        {
+            BoardState testState = new BoardState(State);
+            testState.setPos(pos.x, pos.y, null);
+            testState.setPos(newPos.x, newPos.y, hoverPrefab);
+            if (testState.IsChecked(whiteTurn))
             {
                 State.setPos(pos.x, pos.y, hoverPrefab);
+                return;
             }
         }
-        else
+
+        State.MovePiece(newPos, pos, hoverPrefab);
+        DrawLastMove(pos,newPos);
+        // check for pawn promotion
+        if (hoverPrefab == BlackPieces[5] && newPos.y == 0 || hoverPrefab == WhitePieces[5] && newPos.y == 7)
         {
-            State.setPos(pos.x, pos.y, hoverPrefab);
+            GameMode = GameStage.Promotion;
+            screenDrawn = false;
+            pos = newPos;
         }
-        DrawPieces();
         Destroy(hoveringPiece);
         mouseDown = false;
+        NextTurn();
+    }
+
+    void HandleCheck()
+    {
+        isChecked = State.IsChecked(whiteTurn);
+        CheckLabel.alpha = 0;
+        if (isChecked) 
+        {
+            CheckLabel.alpha = 100;
+            // Check for checkmate
+            if (IsCheckmate())
+            {
+                GameMode = GameStage.GameOver;
+                CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
+                turnText.text = "";
+            }
+        }
     }
 
     Vector2Int GetclickCords()
@@ -319,6 +344,24 @@ public class BoardLogic : MonoBehaviour
         Vector3 mousepos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
         hoveringPiece.transform.position = new Vector3(mousepos.x, mousepos.y, this.Pieces.transform.position.z - 1);
         hoveringPiece.transform.localScale = Vector3.one * 0.9f;
+    }
+
+    void NextTurn()
+    {
+        whiteTurn = !whiteTurn;
+        UpdateTurnText(whiteTurn);
+        isChecked = State.IsChecked(whiteTurn);
+        HandleCheck();
+        DrawPieces();
+
+        // stalemate
+        if (State.IsStalemate(whiteTurn))
+        {
+            GameMode = GameStage.GameOver;
+            CheckLabel.text = "Its a draw!";
+            turnText.text = "";
+            CheckLabel.alpha = 100;
+        }
     }
 
     void UpdateTurnText(bool whiteTurn)
@@ -349,10 +392,11 @@ public class BoardLogic : MonoBehaviour
 
     void PromotePawn(GameObject chosenPiece, GameObject promotionDialog)
     {
-        GameMode = Mode.Default;
+        GameMode = GameStage.Default;
         Destroy(promotionDialog);
         State.setPos(pos.x, pos.y, chosenPiece);
         DrawPieces();
+        HandleCheck();
     }
 
     void DrawPossibleMoves(GameObject hoverPrefab, Vector2Int pos)
