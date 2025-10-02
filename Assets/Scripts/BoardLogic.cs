@@ -203,21 +203,11 @@ public class BoardLogic : MonoBehaviour
                     {
                         if (State.CanPieceMoveToPosition(piece, new Vector2Int(col, row), new Vector2Int(targetCol, targetRow), whiteTurn))
                         {
-                            bool canMove = true;
-                            
-                            // Check if this move would leave the king in check
-                            if (isChecked)
-                            {
-                                BoardState testState = new BoardState(State);
-                                testState.setPos(col, row, null);
-                                testState.setPos(targetCol, targetRow, piece);
-                                if (testState.IsChecked(whiteTurn))
-                                {
-                                    canMove = false;
-                                }
-                            }
-                            
-                            if (canMove)
+                            // ALWAYS check if this move would leave the king in check (not just when already in check)
+                            BoardState testState = new BoardState(State);
+                            testState.setPos(col, row, null);
+                            testState.setPos(targetCol, targetRow, piece);
+                            if (!testState.IsChecked(whiteTurn))
                             {
                                 possibleMoves.Add((new Vector2Int(col, row), new Vector2Int(targetCol, targetRow), piece));
                             }
@@ -235,6 +225,14 @@ public class BoardLogic : MonoBehaviour
                 GameMode = GameStage.GameOver;
                 CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
                 turnText.text = "";
+            }
+            else
+            {
+                // Stalemate
+                GameMode = GameStage.GameOver;
+                CheckLabel.text = "It's a draw!";
+                turnText.text = "";
+                CheckLabel.alpha = 100;
             }
             return;
         }
