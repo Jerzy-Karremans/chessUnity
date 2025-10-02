@@ -3,9 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using TMPro;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 using UnityEngine.UI;
+using WebSocketSharp;
 [ExecuteAlways]
-[RequireComponent(typeof(ServerScript))]
 public class BoardLogic : MonoBehaviour
 {
     private static WaitForSeconds _waitForSeconds0_5 = new WaitForSeconds(0.5f);
@@ -29,19 +30,18 @@ public class BoardLogic : MonoBehaviour
     public GameObject BlackPawnPromotionDialog;
     public GameObject UICanvas;
     public TextMeshProUGUI CheckLabel;
-    public EnemyType enemyType = EnemyType.SingleScreen;
     public AudioClip capture;
     public AudioClip move;
     public AudioClip vineThud;
     public AudioClip yipee;
     public AudioSource audioSource;
-    public bool boardFlipped;
 
     private BoardState State;
-    private ServerScript serverScript;
 
     private float BOARD_OFFSET = 3.5f;
     private GameObject hoveringPiece = null;
+    private string pendingMoveJson = null;
+    WebSocket ws;
 
 
     // Start is called before the first frame update
@@ -51,12 +51,68 @@ public class BoardLogic : MonoBehaviour
         DrawBoardSquares();
         State = new(WhitePieces, BlackPieces);
         DrawPieces();
-        serverScript = GetComponent<ServerScript>();
 
-        Debug.Log(State.ToJson());
+        if (Application.isPlaying && GameSettings.enemyType == GameSettings.EnemyType.Multiplayer)
+        {
+            Application.runInBackground = true;
+            botThinking = true;
+            GameSettings.boardFlipped = true;
+            ws = new WebSocket("ws://77.250.232.176:25561");
+            ws.OnMessage += (sender, e) =>
+            {
+                pendingMoveJson = e.Data;
+            };
+            ws.Connect();
+            DrawPieces();
+        }
+    }
 
-
-        Debug.Log(BoardState.FromJson(State.ToJson(), WhitePieces, BlackPieces).ToJson());
+    void HandleReceivedMove(string moveJson)
+    {
+        try
+        {
+            Debug.Log($"Handling received move: {moveJson}");
+            
+            // Parse the JSON and update the board state
+            State = BoardState.FromJson(moveJson, WhitePieces, BlackPieces);
+            
+            // Switch turns and update UI
+            whiteTurn = !whiteTurn;
+            UpdateTurnText(whiteTurn);
+            
+            // Redraw the board with new state
+            DrawPieces();
+            
+            // Check for check/checkmate
+            isChecked = State.IsChecked(whiteTurn);
+            CheckLabel.alpha = 0;
+            if (isChecked)
+            {
+                CheckLabel.alpha = 100;
+                if (IsCheckmate())
+                {
+                    GameMode = GameStage.GameOver;
+                    CheckLabel.text = (whiteTurn ? "Black" : "White") + " wins Checkmate";
+                    turnText.text = "";
+                }
+            }
+            
+            // Check for stalemate
+            if (State.IsStalemate(whiteTurn))
+            {
+                HandleStalemate();
+            }
+            
+            // Reset bot thinking flag
+            botThinking = false;
+            
+            Debug.Log("Move successfully applied");
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Error handling received move: {e.Message}");
+            botThinking = false;
+        }
     }
 
     void DrawBoardSquares()
@@ -109,18 +165,14 @@ public class BoardLogic : MonoBehaviour
             }
         }
     }
-    public enum EnemyType
-    {
-        SingleScreen,
-        RandomBot,
-        Multiplayer
-    }
 
     enum GameStage
     {
         Default,
         Promotion,
-        GameOver
+        GameOver,
+        WaitingForOpponent,
+        OpponentDisconnected // Add new game stage for opponent disconnection
     };
 
     GameStage GameMode = GameStage.Default;
@@ -130,6 +182,33 @@ public class BoardLogic : MonoBehaviour
     void Update()
     {
         if (!Application.isPlaying) return;
+
+        if (pendingMoveJson != null)
+        {
+            if (pendingMoveJson.Equals("waiting"))
+            {
+                GameSettings.boardFlipped = false;
+                DrawBoardSquares();
+                DrawPieces();
+                GameMode = GameStage.WaitingForOpponent;
+                turnText.text = "Waiting for opponent";
+            }
+            else if (pendingMoveJson.Equals("connected"))
+            {
+                turnText.text = "White goes first";
+                GameMode = GameStage.Default;
+            }
+            else if (pendingMoveJson.Equals("opponent_disconnected"))
+            {
+                HandleOpponentDisconnected();
+            }
+            else 
+            {
+                HandleReceivedMove(pendingMoveJson);
+            }
+            pendingMoveJson = null;
+        }
+
         switch (GameMode)
         {
             case GameStage.Default:
@@ -140,37 +219,40 @@ public class BoardLogic : MonoBehaviour
                 break;
             case GameStage.GameOver:
                 break;
+            case GameStage.WaitingForOpponent:
+                break;
+            case GameStage.OpponentDisconnected: // Add this new stage
+                break;
         }
+    }
+
+    void HandleOpponentDisconnected()
+    {
+        SceneManager.LoadScene("MenuScreen");
     }
 
     void HandleInput()
     {
-        switch (enemyType)
+        switch (GameSettings.enemyType)
         {
-            case EnemyType.SingleScreen:
+            case GameSettings.EnemyType.SingleScreen:
                 ScreenInputHandeler();
                 return;
-            case EnemyType.RandomBot:
-                if (whiteTurn != boardFlipped)
-                {
-                    ScreenInputHandeler();
-                }
-                else if (!botThinking) // Only start thinking if not already thinking
-                {
-                    botThinking = true;
-                    StartCoroutine(MakeRandomMoveWithDelay());
-                }
-                return;
-            case EnemyType.Multiplayer:
-                if (whiteTurn != boardFlipped)
+            case GameSettings.EnemyType.RandomBot:
+                if (whiteTurn != GameSettings.boardFlipped)
                 {
                     ScreenInputHandeler();
                 }
                 else if (!botThinking)
                 {
                     botThinking = true;
-                    serverScript.SendMove(State.ToJson());
-                    Debug.Log("move send");
+                    StartCoroutine(MakeRandomMoveWithDelay());
+                }
+                return;
+            case GameSettings.EnemyType.Multiplayer:
+                if (whiteTurn != GameSettings.boardFlipped)
+                {
+                    ScreenInputHandeler(); // Let the player make their move
                 }
                 return;
         }
@@ -348,9 +430,16 @@ public class BoardLogic : MonoBehaviour
         whiteTurn = !whiteTurn;
         UpdateTurnText(whiteTurn);
         isChecked = State.IsChecked(whiteTurn);
-        HandleCheck();
         DrawPieces();
-
+        
+        // Send move to opponent in multiplayer mode (after making your move)
+        if (GameSettings.enemyType == GameSettings.EnemyType.Multiplayer && ws != null && ws.ReadyState == WebSocketState.Open)
+        {
+            string moveJson = State.ToJson();
+            ws.Send(moveJson);
+            Debug.Log($"Sent move to opponent: {moveJson}");
+        }
+        
         // stalemate
         if (State.IsStalemate(whiteTurn))
         {
@@ -484,7 +573,7 @@ public class BoardLogic : MonoBehaviour
             }
         }
 
-        if (boardFlipped == whiteTurn)
+        if (GameSettings.boardFlipped == whiteTurn)
         {
             audioSource.clip = yipee;
             audioSource.Play();
@@ -500,6 +589,6 @@ public class BoardLogic : MonoBehaviour
 
     float drawY(float y)
     {
-        return boardFlipped ? -y : y;
+        return GameSettings.boardFlipped ? -y : y;
     }
 }
