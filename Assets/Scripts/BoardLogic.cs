@@ -13,6 +13,7 @@ public class BoardLogic : MonoBehaviour
     public GameObject Squares;
     public GameObject Pieces;
     public GameObject HoverFilter;
+    public GameObject CaptureFilter;
     public GameObject whiteSquarePrefab;
     public GameObject darkSquarePrefab;
     public GameObject moveFilter;
@@ -29,6 +30,9 @@ public class BoardLogic : MonoBehaviour
     public GameObject UICanvas;
     public TextMeshProUGUI CheckLabel;
     public EnemyType enemyType = EnemyType.SingleScreen;
+    public AudioClip capture;
+    public AudioClip move;
+    public AudioSource audioSource;
 
     private BoardState State;
     private ServerScript serverScript;
@@ -155,17 +159,6 @@ public class BoardLogic : MonoBehaviour
         }
     }
 
-    void DrawLastMove(Vector2Int pos, Vector2Int newPos)
-    {
-        for (int i = 0; i < activeFilters.Length; i++)
-        {
-            Destroy(activeFilters[i]);
-        }
-
-        activeFilters[0] = Instantiate(moveFilter, new Vector3(pos.x - BOARD_OFFSET, pos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
-        activeFilters[1] = Instantiate(moveFilter,new Vector3(newPos.x - BOARD_OFFSET, newPos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
-    }
-
     System.Collections.IEnumerator MakeRandomMoveWithDelay()
     {
         yield return _waitForSeconds0_5;
@@ -243,8 +236,9 @@ public class BoardLogic : MonoBehaviour
         
         // Execute the move
         State.setPos(randomMove.from.x, randomMove.from.y, null); // Remove piece from original position
+        bool isCapture = State.getPos(randomMove.to.x, randomMove.to.y) != null;
         State.setPos(randomMove.to.x, randomMove.to.y, randomMove.piece); // Place piece at new position
-        DrawLastMove(randomMove.from, randomMove.to);
+        DrawLastMove(randomMove.from, randomMove.to, isCapture);
         
         // Check for pawn promotion
         if (randomMove.piece == BlackPieces[5] && randomMove.to.y == 0 || randomMove.piece == WhitePieces[5] && randomMove.to.y == 7)
@@ -277,7 +271,10 @@ public class BoardLogic : MonoBehaviour
     void PlaceHoveredPiece()
     {
         Vector2Int newPos = GetclickCords();
-        if (!State.CanPieceMoveToPosition(hoverPrefab, pos, newPos, whiteTurn))
+        BoardState testState = new BoardState(State);
+        testState.setPos(pos.x, pos.y, null);
+        testState.setPos(newPos.x, newPos.y, hoverPrefab);
+        if (!State.CanPieceMoveToPosition(hoverPrefab, pos, newPos, whiteTurn) || testState.IsChecked(whiteTurn))
         {
             Destroy(hoveringPiece);
             mouseDown = false;
@@ -285,22 +282,10 @@ public class BoardLogic : MonoBehaviour
             DrawPieces();
             return;
         }
+        
 
-        // Check if this move would leave the king in check (same logic as DrawPossibleMoves)
-        if (isChecked)
-        {
-            BoardState testState = new BoardState(State);
-            testState.setPos(pos.x, pos.y, null);
-            testState.setPos(newPos.x, newPos.y, hoverPrefab);
-            if (testState.IsChecked(whiteTurn))
-            {
-                State.setPos(pos.x, pos.y, hoverPrefab);
-                return;
-            }
-        }
-
-        State.MovePiece(newPos, pos, hoverPrefab);
-        DrawLastMove(pos,newPos);
+        bool isCapture = State.MovePiece(newPos, pos, hoverPrefab);
+        DrawLastMove(pos,newPos, isCapture);
         // check for pawn promotion
         if (hoverPrefab == BlackPieces[5] && newPos.y == 0 || hoverPrefab == WhitePieces[5] && newPos.y == 7)
         {
@@ -405,18 +390,10 @@ public class BoardLogic : MonoBehaviour
             {
                 if (State.CanPieceMoveToPosition(hoverPrefab, pos, new Vector2Int(col, row), whiteTurn))
                 {
-                    if (isChecked)
-                    {
-                        BoardState testState = new BoardState(State);
-                        testState.setPos(pos.x, pos.y, null);
-                        testState.setPos(col, row, hoverPrefab);
-                        if (!testState.IsChecked(whiteTurn))
-                        {
-                            var test = Instantiate(HoverFilter, Vector3.zero, Quaternion.identity, this.Pieces.transform);
-                            test.transform.localPosition = new Vector3(col - BOARD_OFFSET, row - BOARD_OFFSET, 0.5f);
-                        }
-                    }
-                    else
+                    BoardState testState = new BoardState(State);
+                    testState.setPos(pos.x, pos.y, null);
+                    testState.setPos(col, row, hoverPrefab);
+                    if (!testState.IsChecked(whiteTurn))
                     {
                         var test = Instantiate(HoverFilter, Vector3.zero, Quaternion.identity, this.Pieces.transform);
                         test.transform.localPosition = new Vector3(col - BOARD_OFFSET, row - BOARD_OFFSET, 0.5f);
@@ -424,6 +401,30 @@ public class BoardLogic : MonoBehaviour
                 }
             }
         }
+    }
+
+    void DrawLastMove(Vector2Int pos, Vector2Int newPos, bool isCapture)
+    {
+        for (int i = 0; i < activeFilters.Length; i++)
+        {
+            Destroy(activeFilters[i]);
+        }
+
+        activeFilters[0] = Instantiate(moveFilter, new Vector3(pos.x - BOARD_OFFSET, pos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
+
+        if (isCapture)
+        {
+            activeFilters[1] = Instantiate(CaptureFilter, new Vector3(newPos.x - BOARD_OFFSET, newPos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
+        }
+        else
+        {
+            activeFilters[1] = Instantiate(moveFilter, new Vector3(newPos.x - BOARD_OFFSET, newPos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
+        }
+        
+        
+        audioSource.clip = move;
+        if (isCapture) audioSource.clip = capture;
+        audioSource.Play();
     }
 
     bool IsCheckmate()

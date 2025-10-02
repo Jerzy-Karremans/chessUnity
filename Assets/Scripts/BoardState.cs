@@ -44,8 +44,9 @@ public class BoardState
     this.enPassantPossible = original.enPassantPossible;
 }
 
-    public void MovePiece(Vector2Int newPos, Vector2Int pos, GameObject hoverPrefab)
+    public bool MovePiece(Vector2Int newPos, Vector2Int pos, GameObject hoverPrefab)
     {
+        bool isCapture = boardState[newPos.y, newPos.x] != null;
         // is pawn
         if (hoverPrefab == WhitePieces[5] || hoverPrefab == BlackPieces[5])
             AnPessantLogic(newPos, pos, hoverPrefab);
@@ -53,7 +54,9 @@ public class BoardState
         if (hoverPrefab == WhitePieces[0] || hoverPrefab == WhitePieces[4] || hoverPrefab == BlackPieces[0] || hoverPrefab == BlackPieces[4])
             UpdateCastleMoved(newPos, pos, hoverPrefab);
 
+        
         setPos(newPos.x, newPos.y, hoverPrefab);
+        return isCapture;
     }
 
     public bool IsStalemate(bool whiteTurn)
@@ -281,8 +284,8 @@ public class BoardState
         if (newPos.y == colorIndex * 7 && !castleMoved[colorIndex, 1])
         {
             //king side castle
-            if (!(boardState[colorIndex * 7, 0] == WhitePieces[0] || boardState[colorIndex * 7, 0] == BlackPieces[0]) &&
-                newPos.x == 6 && boardState[newPos.y, 5] == null && !castleMoved[colorIndex, 2])
+            if ((boardState[colorIndex * 7, 7] == WhitePieces[0] || boardState[colorIndex * 7, 7] == BlackPieces[0]) &&
+              newPos.x == 6 && boardState[newPos.y, 5] == null && !castleMoved[colorIndex, 2])
             {
                 return true;
             }
