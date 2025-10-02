@@ -32,7 +32,10 @@ public class BoardLogic : MonoBehaviour
     public EnemyType enemyType = EnemyType.SingleScreen;
     public AudioClip capture;
     public AudioClip move;
+    public AudioClip vineThud;
+    public AudioClip yipee;
     public AudioSource audioSource;
+    public bool boardFlipped;
 
     private BoardState State;
     private ServerScript serverScript;
@@ -45,11 +48,15 @@ public class BoardLogic : MonoBehaviour
     void Start()
     {
         activeFilters = new GameObject[2];
-        
         DrawBoardSquares();
         State = new(WhitePieces, BlackPieces);
         DrawPieces();
         serverScript = GetComponent<ServerScript>();
+
+        Debug.Log(State.ToJson());
+
+
+        Debug.Log(BoardState.FromJson(State.ToJson(), WhitePieces, BlackPieces).ToJson());
     }
 
     void DrawBoardSquares()
@@ -72,7 +79,7 @@ public class BoardLogic : MonoBehaviour
             {
                 GameObject square = (row + col) % 2 != 0 ? whiteSquarePrefab : darkSquarePrefab;
                 square = Instantiate(square, Vector3.zero, Quaternion.identity, Squares.transform);
-                square.transform.localPosition = new Vector3(row - BOARD_OFFSET, col - BOARD_OFFSET, 0);
+                square.transform.localPosition = new Vector3(drawY(row - BOARD_OFFSET), col - BOARD_OFFSET, 0);
             }
         }
     }
@@ -95,9 +102,9 @@ public class BoardLogic : MonoBehaviour
         {
             for (int col = 0; col < 8; col++)
             {
-                if (State.getPos(col,row) == null) continue;
-                GameObject piece = Instantiate(State.getPos(col,row), Vector3.zero, Quaternion.identity, Pieces.transform);
-                piece.transform.localPosition = new Vector3(col - BOARD_OFFSET, row - BOARD_OFFSET, 0);
+                if (State.getPos(col, row) == null) continue;
+                GameObject piece = Instantiate(State.getPos(col, row), Vector3.zero, Quaternion.identity, Pieces.transform);
+                piece.transform.localPosition = new Vector3(col - BOARD_OFFSET, drawY(row - BOARD_OFFSET), 0);
                 piece.transform.localScale = Vector3.one * 0.75f;
             }
         }
@@ -108,7 +115,7 @@ public class BoardLogic : MonoBehaviour
         RandomBot,
         Multiplayer
     }
-    
+
     enum GameStage
     {
         Default,
@@ -144,7 +151,7 @@ public class BoardLogic : MonoBehaviour
                 ScreenInputHandeler();
                 return;
             case EnemyType.RandomBot:
-                if (whiteTurn) 
+                if (whiteTurn != boardFlipped)
                 {
                     ScreenInputHandeler();
                 }
@@ -155,7 +162,17 @@ public class BoardLogic : MonoBehaviour
                 }
                 return;
             case EnemyType.Multiplayer:
-                throw new NotImplementedException();
+                if (whiteTurn != boardFlipped)
+                {
+                    ScreenInputHandeler();
+                }
+                else if (!botThinking)
+                {
+                    botThinking = true;
+                    serverScript.SendMove(State.ToJson());
+                    Debug.Log("move send");
+                }
+                return;
         }
     }
 
@@ -180,7 +197,7 @@ public class BoardLogic : MonoBehaviour
     {
         List<(Vector2Int from, Vector2Int to, GameObject piece)> possibleMoves = new();
         GameObject[] currentPlayerPieces = whiteTurn ? WhitePieces : BlackPieces;
-        
+
         // Find all possible moves for the current player
         for (int row = 0; row < 8; row++)
         {
@@ -188,7 +205,7 @@ public class BoardLogic : MonoBehaviour
             {
                 GameObject piece = State.getPos(col, row);
                 if (piece == null || !currentPlayerPieces.Contains(piece)) continue;
-                
+
                 // Check all possible moves for this piece
                 for (int targetRow = 0; targetRow < 8; targetRow++)
                 {
@@ -209,7 +226,7 @@ public class BoardLogic : MonoBehaviour
                 }
             }
         }
-        
+
         // If no moves available, it's checkmate or stalemate
         if (possibleMoves.Count == 0)
         {
@@ -221,25 +238,21 @@ public class BoardLogic : MonoBehaviour
             }
             else
             {
-                // Stalemate
-                GameMode = GameStage.GameOver;
-                CheckLabel.text = "It's a draw!";
-                turnText.text = "";
-                CheckLabel.alpha = 100;
+                HandleStalemate();
             }
             return;
         }
-        
+
         // Pick a random move
         int randomIndex = UnityEngine.Random.Range(0, possibleMoves.Count);
         var randomMove = possibleMoves[randomIndex];
-        
+
         // Execute the move
         State.setPos(randomMove.from.x, randomMove.from.y, null); // Remove piece from original position
         bool isCapture = State.getPos(randomMove.to.x, randomMove.to.y) != null;
         State.setPos(randomMove.to.x, randomMove.to.y, randomMove.piece); // Place piece at new position
         DrawLastMove(randomMove.from, randomMove.to, isCapture);
-        
+
         // Check for pawn promotion
         if (randomMove.piece == BlackPieces[5] && randomMove.to.y == 0 || randomMove.piece == WhitePieces[5] && randomMove.to.y == 7)
         {
@@ -256,7 +269,7 @@ public class BoardLogic : MonoBehaviour
     void SelectHoveringPiece()
     {
         pos = GetclickCords();
-        if (pos.x < 0 || pos.x > 7 || pos.y < 0 || pos.y > 7 ) return;
+        if (pos.x < 0 || pos.x > 7 || pos.y < 0 || pos.y > 7) return;
         hoverPrefab = State.getPos(pos.x, pos.y);
         if (hoverPrefab == null || whiteTurn != WhitePieces.Contains(hoverPrefab)) return;
         mouseDown = true;
@@ -282,10 +295,10 @@ public class BoardLogic : MonoBehaviour
             DrawPieces();
             return;
         }
-        
+
 
         bool isCapture = State.MovePiece(newPos, pos, hoverPrefab);
-        DrawLastMove(pos,newPos, isCapture);
+        DrawLastMove(pos, newPos, isCapture);
         // check for pawn promotion
         if (hoverPrefab == BlackPieces[5] && newPos.y == 0 || hoverPrefab == WhitePieces[5] && newPos.y == 7)
         {
@@ -302,7 +315,7 @@ public class BoardLogic : MonoBehaviour
     {
         isChecked = State.IsChecked(whiteTurn);
         CheckLabel.alpha = 0;
-        if (isChecked) 
+        if (isChecked)
         {
             CheckLabel.alpha = 100;
             // Check for checkmate
@@ -318,6 +331,7 @@ public class BoardLogic : MonoBehaviour
     Vector2Int GetclickCords()
     {
         Vector3 mousepos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        mousepos.y = drawY(mousepos.y);
         mousepos += new Vector3(4, 4, 0);
         return new Vector2Int(Mathf.FloorToInt(mousepos.x), Mathf.FloorToInt(mousepos.y));
     }
@@ -340,18 +354,25 @@ public class BoardLogic : MonoBehaviour
         // stalemate
         if (State.IsStalemate(whiteTurn))
         {
-            GameMode = GameStage.GameOver;
-            CheckLabel.text = "Its a draw!";
-            turnText.text = "";
-            CheckLabel.alpha = 100;
+            HandleStalemate();
         }
+    }
+
+    void HandleStalemate()
+    {
+        GameMode = GameStage.GameOver;
+        CheckLabel.text = "Its a draw!";
+        turnText.text = "";
+        CheckLabel.alpha = 100;
+        audioSource.clip = vineThud;
+        audioSource.Play();
     }
 
     void UpdateTurnText(bool whiteTurn)
     {
         string text = whiteTurn ? "White's Turn" : "Black's turn";
         turnText.SetText(text);
-        turnText.color = whiteTurn ? Color.white : Color.black;  
+        turnText.color = whiteTurn ? Color.white : Color.black;
     }
 
     bool screenDrawn = false;
@@ -396,7 +417,7 @@ public class BoardLogic : MonoBehaviour
                     if (!testState.IsChecked(whiteTurn))
                     {
                         var test = Instantiate(HoverFilter, Vector3.zero, Quaternion.identity, this.Pieces.transform);
-                        test.transform.localPosition = new Vector3(col - BOARD_OFFSET, row - BOARD_OFFSET, 0.5f);
+                        test.transform.localPosition = new Vector3(col - BOARD_OFFSET, drawY(row - BOARD_OFFSET), 0.5f);
                     }
                 }
             }
@@ -410,18 +431,18 @@ public class BoardLogic : MonoBehaviour
             Destroy(activeFilters[i]);
         }
 
-        activeFilters[0] = Instantiate(moveFilter, new Vector3(pos.x - BOARD_OFFSET, pos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
+        activeFilters[0] = Instantiate(moveFilter, new Vector3(pos.x - BOARD_OFFSET, drawY(pos.y - BOARD_OFFSET), -0.3f), Quaternion.identity, Squares.transform);
 
         if (isCapture)
         {
-            activeFilters[1] = Instantiate(CaptureFilter, new Vector3(newPos.x - BOARD_OFFSET, newPos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
+            activeFilters[1] = Instantiate(CaptureFilter, new Vector3(newPos.x - BOARD_OFFSET, drawY(newPos.y - BOARD_OFFSET), -0.3f), Quaternion.identity, Squares.transform);
         }
         else
         {
-            activeFilters[1] = Instantiate(moveFilter, new Vector3(newPos.x - BOARD_OFFSET, newPos.y - BOARD_OFFSET, -0.3f), Quaternion.identity, Squares.transform);
+            activeFilters[1] = Instantiate(moveFilter, new Vector3(newPos.x - BOARD_OFFSET, drawY(newPos.y - BOARD_OFFSET), -0.3f), Quaternion.identity, Squares.transform);
         }
-        
-        
+
+
         audioSource.clip = move;
         if (isCapture) audioSource.clip = capture;
         audioSource.Play();
@@ -431,17 +452,17 @@ public class BoardLogic : MonoBehaviour
     {
         // If not in check, it's not checkmate
         if (!isChecked) return false;
-        
+
         // Check if any piece of the current player can make a legal move
         GameObject[] currentPlayerPieces = whiteTurn ? WhitePieces : BlackPieces;
-        
+
         for (int row = 0; row < 8; row++)
         {
             for (int col = 0; col < 8; col++)
             {
                 GameObject piece = State.getPos(col, row);
                 if (piece == null || !currentPlayerPieces.Contains(piece)) continue;
-                
+
                 // Check all possible moves for this piece
                 for (int targetRow = 0; targetRow < 8; targetRow++)
                 {
@@ -462,7 +483,23 @@ public class BoardLogic : MonoBehaviour
                 }
             }
         }
-        
+
+        if (boardFlipped == whiteTurn)
+        {
+            audioSource.clip = yipee;
+            audioSource.Play();
+        }
+        else
+        {
+            audioSource.clip = vineThud;
+            audioSource.Play();
+        }
+
         return true; // No legal moves found, it's checkmate
+    }
+
+    float drawY(float y)
+    {
+        return boardFlipped ? -y : y;
     }
 }

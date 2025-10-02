@@ -1,5 +1,6 @@
 using WebSocketSharp;
 using UnityEngine;
+using System.Net;
 
 public class ServerScript : MonoBehaviour
 {
@@ -19,5 +20,12 @@ public class ServerScript : MonoBehaviour
         if (ws == null) return;
 
         ws.Send("ping");
+    }
+
+    public void SendMove(string boardJson)
+    {
+        if (ws == null) throw new WebException();
+
+        ws.Send(boardJson);
     }
 }

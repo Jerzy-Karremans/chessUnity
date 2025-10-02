@@ -2,7 +2,16 @@ using System;
 using System.Threading;
 using Unity.Collections;
 using Unity.Mathematics;
+using Newtonsoft.Json;
 using UnityEngine;
+
+[System.Serializable]
+public class BoardStateData
+{
+    public int[,] boardState = new int[8, 8];
+    public bool[,] castleMoved = new bool[2, 3];
+    public int enPassantPossible = -1;
+}
 
 public class BoardState
 {
@@ -10,39 +19,41 @@ public class BoardState
     private readonly GameObject[] WhitePieces;
     private readonly GameObject[] BlackPieces;
     private readonly bool[,] castleMoved = new bool[2, 3] { { false, false, false }, { false, false, false } };
+    private int enPassantPossible = -1;
 
-    public BoardState(GameObject[] WhitePieces, GameObject[] BlackPieces)
+    public BoardState(GameObject[] WhitePieces, GameObject[] BlackPieces, bool empty = false)
     {
         this.WhitePieces = WhitePieces;
         this.BlackPieces = BlackPieces;
-        InstantiatePieces();
+
+        if (!empty) InstantiatePieces();
     }
-    
+
     public BoardState(BoardState original)
-{
-    this.WhitePieces = original.WhitePieces;
-    this.BlackPieces = original.BlackPieces;
-    
-    // Deep copy the board state
-    for (int row = 0; row < 8; row++)
     {
-        for (int col = 0; col < 8; col++)
+        this.WhitePieces = original.WhitePieces;
+        this.BlackPieces = original.BlackPieces;
+
+        // Deep copy the board state
+        for (int row = 0; row < 8; row++)
         {
-            this.boardState[row, col] = original.boardState[row, col];
+            for (int col = 0; col < 8; col++)
+            {
+                this.boardState[row, col] = original.boardState[row, col];
+            }
         }
-    }
-    
-    // Copy castle moved state
-    for (int i = 0; i < 2; i++)
-    {
-        for (int j = 0; j < 3; j++)
+
+        // Copy castle moved state
+        for (int i = 0; i < 2; i++)
         {
-            this.castleMoved[i, j] = original.castleMoved[i, j];
+            for (int j = 0; j < 3; j++)
+            {
+                this.castleMoved[i, j] = original.castleMoved[i, j];
+            }
         }
+
+        this.enPassantPossible = original.enPassantPossible;
     }
-    
-    this.enPassantPossible = original.enPassantPossible;
-}
 
     public bool MovePiece(Vector2Int newPos, Vector2Int pos, GameObject hoverPrefab)
     {
@@ -54,7 +65,7 @@ public class BoardState
         if (hoverPrefab == WhitePieces[0] || hoverPrefab == WhitePieces[4] || hoverPrefab == BlackPieces[0] || hoverPrefab == BlackPieces[4])
             UpdateCastleMoved(newPos, pos, hoverPrefab);
 
-        
+
         setPos(newPos.x, newPos.y, hoverPrefab);
         return isCapture;
     }
@@ -184,8 +195,8 @@ public class BoardState
                         break;
                 }
 
-                    setPos(col, row, piece);
-                
+                setPos(col, row, piece);
+
             }
         }
     }
@@ -199,7 +210,6 @@ public class BoardState
         }
         return false;
     }
-
 
     public bool CanPieceMoveToPosition(GameObject piece, Vector2Int currentPos, Vector2Int newPos, bool whiteTurn)
     {
@@ -221,8 +231,6 @@ public class BoardState
         else if (piece == WhitePieces[5] || piece == BlackPieces[5]) return PawnIsValid(currentPos, newPos, whiteTurn);
         else throw new Exception("all pieces should be implemented, if this triggers gg ig, shaw should kill himself");
     }
-    
-    
 
     public bool IsChecked(bool whiteTurn)
     {
@@ -251,15 +259,15 @@ public class BoardState
             {
                 GameObject enemyPiece = boardState[row, col];
                 if (enemyPiece == null || IsWhitePiece(enemyPiece) == whiteTurn) continue;
-                
+
                 // King attack check
                 if (enemyPiece == WhitePieces[4] || enemyPiece == BlackPieces[4])
                 {
                     if (Mathf.Abs(col - pos.x) <= 1 && Mathf.Abs(row - pos.y) <= 1)
                         return true;
                     continue;
-                } 
-                    
+                }
+
                 // Pawn attack check
                 if (enemyPiece == WhitePieces[5] || enemyPiece == BlackPieces[5])
                 {
@@ -270,7 +278,7 @@ public class BoardState
                     continue;
                 }
                 // Other pieces
-                if (CanPieceMoveToPosition(enemyPiece,pos, new Vector2Int(col, row), whiteTurn))
+                if (CanPieceMoveToPosition(enemyPiece, pos, new Vector2Int(col, row), whiteTurn))
                     return true;
             }
         }
@@ -291,15 +299,15 @@ public class BoardState
             }
             //queen side castle
             else if ((boardState[colorIndex * 7, 0] == WhitePieces[0] || boardState[colorIndex * 7, 0] == BlackPieces[0]) &&
-                newPos.x == 2 && boardState[newPos.y, 1] == null && boardState[newPos.y, 3] == null) {
+                newPos.x == 2 && boardState[newPos.y, 1] == null && boardState[newPos.y, 3] == null)
+            {
                 return true;
-            } 
+            }
         }
-        
+
         // normal movement
         return Mathf.Abs(newPos.x - pos.x) <= 1 && Mathf.Abs(newPos.y - pos.y) <= 1;
     }
-
 
     bool BishopIsValid(Vector2Int pos, Vector2Int newPos)
     {
@@ -363,8 +371,6 @@ public class BoardState
         return false;
     }
 
-    int enPassantPossible = -1;
-
     bool PawnIsValid(Vector2Int pos, Vector2Int newPos, bool isWhitePawn)
     {
         int direction = isWhitePawn ? 1 : -1;
@@ -412,7 +418,7 @@ public class BoardState
 
         return false;
     }
-    
+
     void AnPessantLogic(Vector2Int newPos, Vector2Int pos, GameObject hoverPrefab)
     {
         // Check if this move enables en passant for the opponent
@@ -446,5 +452,74 @@ public class BoardState
         {
             enPassantPossible = -1;
         }
+    }
+
+    private int GetPieceId(GameObject piece)
+    {
+        for (int i = 0; i < WhitePieces.Length; i++)
+        {
+            if (piece == WhitePieces[i]) return i + 1;
+        }
+
+        for (int i = 0; i < BlackPieces.Length; i++)
+        {
+            if (piece == BlackPieces[i]) return i + 7;
+        }
+
+        return 0;
+    }
+
+    private GameObject GetPieceFromId(int id)
+    {
+        if (id >= 1 && id <= 6) return WhitePieces[id - 1];
+        if (id >= 7 && id <= 12) return BlackPieces[id - 7];
+        return null;
+    }
+
+    public string ToJson()
+    {
+        BoardStateData data = new();
+        data.enPassantPossible = enPassantPossible;
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                data.boardState[row, col] = GetPieceId(boardState[row, col]);
+            }
+        }
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                data.castleMoved[i, j] = this.castleMoved[i, j];
+            }
+        }
+        return JsonConvert.SerializeObject(data);
+    }
+
+    public static BoardState FromJson(string json, GameObject[] WhitePieces, GameObject[] BlackPieces)
+    {
+        BoardStateData data = JsonConvert.DeserializeObject<BoardStateData>(json);
+        BoardState state = new BoardState(WhitePieces, BlackPieces, true);
+
+        for (int row = 0; row < 8; row++)
+        {
+            for (int col = 0; col < 8; col++)
+            {
+                GameObject piece = state.GetPieceFromId(data.boardState[row, col]);
+                state.setPos(col, row, piece);
+            }
+        }
+
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = 0; j < 3; j++)
+            {
+                state.castleMoved[i, j] = data.castleMoved[i, j];
+            }
+        }
+
+        state.enPassantPossible = data.enPassantPossible;
+        return state;
     }
 }

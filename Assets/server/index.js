@@ -10,8 +10,11 @@ socket.on("connection", function connection(ws) {
         if(data.toString() === "ping") {
             console.log("got pinged")
             ws.send("Pong");
+        } else {
+            console.log(data.toString())
         }
-        
+
+
     })
 })
 
