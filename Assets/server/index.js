@@ -5,7 +5,7 @@ const http = require("http");
 const chalk = require("chalk");
 
 const app = express();
-const PORT = 25562;
+const PORT = process.env.SERVER_PORT || process.env.PORT
 
 // Serve static files
 app.use(express.static(path.join(__dirname, "public")));
@@ -156,18 +156,8 @@ function removeClient(ws) {
         gamePairs.splice(pairIndex, 1);
         console.log(chalk.red(`Game ${chalk.yellow(pair.gameId)} ended due to disconnection`));
     }
-    
-    // Log current server status
     console.log(chalk.gray(`Server status: ${chalk.green(waitingClients.length)} waiting, ${chalk.blue(gamePairs.length)} active games`));
 }
-
-// Graceful shutdown with better logging
-process.on('SIGTERM', () => {
-    console.log(chalk.red.bold('SIGTERM received, shutting down gracefully...'));
-    clearInterval(heartbeat);
-    socket.close();
-    httpServer.close();
-});
 
 process.on('SIGINT', () => {
     console.log(chalk.red.bold('SIGINT received, shutting down gracefully...'));
