@@ -1,10 +1,9 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using UnityEngine.UI; 
+using UnityEngine.UI;
 
 public class MenuScreenController : MonoBehaviour
 {
-
     void Start()
     {
         Button[] buttons = GetComponentsInChildren<Button>();
