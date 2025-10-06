@@ -64,18 +64,23 @@ public class ChessGameStateModel : MonoBehaviour
         UpdateGameState(BoardStateData.lastMove, !BoardStateData.isWhiteTurn);
         return BoardStateData;
     }
-
-    private void UpdateGameState(MoveData newMove, bool? opponentTurn = null)
+    
+    public MoveData MakeAIMove()
     {
-        bool checkingPlayer = opponentTurn ?? !BoardStateData.isWhiteTurn;
+
+        return AIUtils.GetRandomMove(BoardStateData);
+    }
+
+    private void UpdateGameState(MoveData newMove, bool opponentTurn = false)
+    {
+        bool checkingPlayer = opponentTurn ? !BoardStateData.isWhiteTurn : BoardStateData.isWhiteTurn;
 
         bool opponentInCheck = ChessRules.IsChecked(!checkingPlayer,
             BoardStateData.board, BoardStateData.castleMoved, BoardStateData.enPassantColumn);
-
         if (opponentInCheck)
         {
             newMove.MoveSpeciality = MoveSpeciality.isCheck;
-            
+
             if (ChessRules.IsCheckMate(!checkingPlayer, BoardStateData.board, BoardStateData.castleMoved, BoardStateData.enPassantColumn))
             {
                 newMove.gameState = checkingPlayer ? GameState.WhiteCheckmate : GameState.BlackCheckmate;
@@ -115,6 +120,11 @@ public class ChessGameStateModel : MonoBehaviour
     public bool GetIswhiteTurn()
     {
         return BoardStateData.isWhiteTurn;
+    }
+
+    public bool IsGameOver()
+    {
+        return BoardStateData.lastMove.gameState != GameState.Default;
     }
 
     public int[,] GetBoardState()

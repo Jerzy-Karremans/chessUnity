@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 
 [RequireComponent(typeof(BoardRenderer))]
@@ -16,6 +17,7 @@ public class GameController : MonoBehaviour
     // Promotion state
     private Vector2Int promotionPos;
     private bool awaitingPromotion = false;
+    private bool opponentThinking = false;
 
     void Start()
     {
@@ -29,6 +31,26 @@ public class GameController : MonoBehaviour
         UIRenderer.OnPromotionChoice += OnPromotionChoice;
     }
 
+    void Update()
+    {
+        if (opponentThinking == false &&
+            !awaitingPromotion &&
+            GameSettingsData.playingAsWhite != ChessGameStateModel.GetIswhiteTurn() && 
+            !ChessGameStateModel.IsGameOver())
+        {
+            opponentThinking = true;
+            StartCoroutine(MakeAIMoveWithDelay());
+        }
+    }
+
+    private IEnumerator MakeAIMoveWithDelay()
+    {
+        yield return new WaitForSeconds(0.5f); // Small delay for better UX
+        MoveData randoMove = ChessGameStateModel.MakeAIMove();
+        OnPieceMoved(randoMove.pos, randoMove.newPos);
+        opponentThinking = false;
+    }
+
     public bool OnSquareClicked(Vector2Int pos)
     {
         if (awaitingPromotion) return false;
@@ -37,7 +59,7 @@ public class GameController : MonoBehaviour
         if (piece == null)
             return false;
         if (ChessGameStateModel.GetIswhiteTurn() != ChessGameStateModel.IsWhitePiece(pos))
-            return false;            
+            return false;
 
         // hover current piece
         piece.transform.localScale = Vector3.one * 0.9f;
