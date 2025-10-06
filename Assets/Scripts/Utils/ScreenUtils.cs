@@ -4,10 +4,14 @@ public class ScreenUtils : MonoBehaviour
 {
     public static void RemoveChildren(GameObject parent)
     {
-        for (int i = 0; i < parent.transform.childCount; i++)
+        for (int i = parent.transform.childCount - 1; i >= 0; i--)
         {
             if (Application.isPlaying)
                 Destroy(parent.transform.GetChild(i).gameObject);
+            else
+            {
+                DestroyImmediate(parent.transform.GetChild(i).gameObject);
+            }
         }
     }
 

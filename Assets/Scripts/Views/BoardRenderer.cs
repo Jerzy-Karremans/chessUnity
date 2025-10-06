@@ -24,6 +24,7 @@ public class BoardRenderer : MonoBehaviour
 
     public void InitializeSquares()
     {
+        ScreenUtils.RemoveChildren(Parent);
         ConverterUtils.ForEachSquare((row, col) =>
         {
             GameObject square = (row + col) % 2 != 0 ? whiteSquarePrefab : darkSquarePrefab;
@@ -34,7 +35,7 @@ public class BoardRenderer : MonoBehaviour
 
     public void DrawLastMoveIndicators(MoveData moveData)
     {
-        if(Parent == null) Debug.Log("God dammit");
+        if (Parent == null) return;
         // clear previous active filters
         if (ActiveLastMoveIndicator != null)
             foreach (GameObject filter in ActiveLastMoveIndicator)
@@ -60,10 +61,10 @@ public class BoardRenderer : MonoBehaviour
                     Parent.transform);
                 ActivePossibleMoveIndicators.Add(indicator);
             }
-                
+
         });
     }
-    
+
     public void ClearPossibleMovesIndicator()
     {
         if (ActivePossibleMoveIndicators != null)
@@ -74,5 +75,5 @@ public class BoardRenderer : MonoBehaviour
             }
             ActivePossibleMoveIndicators.Clear();
         }
-    }    
+    }
 }

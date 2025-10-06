@@ -18,7 +18,8 @@ public class PieceRenderer : MonoBehaviour
 
     public void DrawPieces(int[,] board)
     {
-        ClearPieces();
+        ScreenUtils.RemoveChildren(Parent);
+        PieceObjects.Clear();
 
         ConverterUtils.ForEachSquare((row, col) =>
         {
@@ -38,20 +39,6 @@ public class PieceRenderer : MonoBehaviour
         });
     }
 
-    private void ClearPieces()
-    {
-        if (Parent == null) return;
-
-        for (int i = Parent.transform.childCount - 1; i >= 0; i--)
-        {
-            Transform child = Parent.transform.GetChild(i);
-            if (Application.isPlaying)
-                Destroy(child.gameObject);
-            else
-                DestroyImmediate(child.gameObject);
-        }
-        PieceObjects.Clear();
-    }
 
     public void HandleMouseDrag()
     {

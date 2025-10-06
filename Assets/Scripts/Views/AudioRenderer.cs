@@ -1,3 +1,4 @@
+using Unity.VisualScripting;
 using UnityEngine;
 
 [RequireComponent(typeof(AudioSource))]
@@ -9,6 +10,7 @@ public class AudioRenderer : MonoBehaviour
     public AudioClip CastleSound;
     public AudioClip CheckSound;
     public AudioClip PromoteSound;
+    public AudioClip CheckMateSound;
     [Header("Game Sounds")]
     public AudioClip VictorySound;
     public AudioClip DefeatSound;
@@ -33,10 +35,10 @@ public class AudioRenderer : MonoBehaviour
         audioSource.PlayOneShot(soundToPLay);
     }
 
-    public void PlayEndGameSound(bool won)
+    public void PlayEndGameSound(bool isMyTurn)
     {
-        if (won)
-            audioSource.PlayOneShot(VictorySound);
+        if (isMyTurn)
+            audioSource.PlayOneShot(CheckMateSound);
         else
             audioSource.PlayOneShot(DefeatSound);
     }

@@ -7,7 +7,6 @@ public enum EnemyType
 
 public static class GameSettingsData
 {
-
     public static EnemyType enemyType;
     public static bool playingAsWhite = true;
 }

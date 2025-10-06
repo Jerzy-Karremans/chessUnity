@@ -1,16 +1,21 @@
 using UnityEngine;
 
-[ExecuteAlways]
 [RequireComponent(typeof(BoardRenderer))]
 [RequireComponent(typeof(ChessGameStateModel))]
 [RequireComponent(typeof(PieceRenderer))]
 [RequireComponent(typeof(AudioRenderer))]
+[RequireComponent(typeof(UIRenderer))]
 public class GameController : MonoBehaviour
 {
     private ChessGameStateModel ChessGameStateModel;
     private BoardRenderer BoardRenderer;
     private PieceRenderer PieceRenderer;
     private AudioRenderer AudioRenderer;
+    private UIRenderer UIRenderer;
+    
+    // Promotion state
+    private Vector2Int promotionPos;
+    private bool awaitingPromotion = false;
 
     void Start()
     {
@@ -20,10 +25,14 @@ public class GameController : MonoBehaviour
         PieceRenderer = GetComponent<PieceRenderer>();
         PieceRenderer.DrawPieces(ChessGameStateModel.GetInitialBoard().board);
         AudioRenderer = GetComponent<AudioRenderer>();
+        UIRenderer = GetComponent<UIRenderer>();
+        UIRenderer.OnPromotionChoice += OnPromotionChoice;
     }
 
     public bool OnSquareClicked(Vector2Int pos)
     {
+        if (awaitingPromotion) return false;
+
         GameObject piece = PieceRenderer.GetPieceAt(pos);
         if (piece == null)
             return false;
@@ -51,7 +60,50 @@ public class GameController : MonoBehaviour
         MoveData lastMove = updatedBoard.lastMove;
         if (lastMove == null) return;
 
+        // Check if this move requires promotion choice
+        if (lastMove.MoveSpeciality == MoveSpeciality.isPromotion)
+        {
+            promotionPos = newPos;
+            awaitingPromotion = true;
+            UIRenderer.RenderPromotionDialog(!updatedBoard.isWhiteTurn); // Previous player's color
+            return; // Don't complete the turn yet
+        }
+
+        // Complete normal move
+        CompleteTurn(lastMove, updatedBoard);
+    }
+
+    private void OnPromotionChoice(int promotionPieceType, GameObject promotionDialog)
+    {
+        BoardStateData updatedBoard = ChessGameStateModel.PromotePawn(promotionPos, promotionPieceType);
+        
+        Destroy(promotionDialog);
+        awaitingPromotion = false;
+        
+        PieceRenderer.DrawPieces(updatedBoard.board);
+        
+        MoveData promotionMove = updatedBoard.lastMove;
+        if (promotionMove != null)
+        {
+            promotionMove.promotionPieceIndex = promotionPieceType;
+            CompleteTurn(promotionMove, updatedBoard);
+        }
+    }
+
+    private void CompleteTurn(MoveData lastMove, BoardStateData updatedBoard)
+    {
         BoardRenderer.DrawLastMoveIndicators(lastMove);
         AudioRenderer.PlayMoveSound(lastMove);
+        UIRenderer.SetGameStateText(lastMove);
+        UIRenderer.SetTurnText(updatedBoard.isWhiteTurn);
+
+        if (lastMove.gameState != GameState.Default)
+            AudioRenderer.PlayEndGameSound(GameSettingsData.playingAsWhite == !updatedBoard.isWhiteTurn);
+    }
+
+    void OnDestroy()
+    {
+        if (UIRenderer != null)
+            UIRenderer.OnPromotionChoice -= OnPromotionChoice;
     }
 }

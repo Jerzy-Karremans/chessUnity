@@ -26,15 +26,16 @@ public class ChessGameStateModel : MonoBehaviour
     {
         var newPos = newMove.newPos;
         var pos = newMove.pos;
+        var board = BoardStateData.board;
 
-        ChessRules.HandleEnPassant(newMove, pieceIndex, BoardStateData.board, BoardStateData.enPassantColumn);
-        ChessRules.HandleCastling(newMove, pieceIndex, BoardStateData.board);
+        ChessRules.HandleEnPassant(newMove, pieceIndex, board, BoardStateData.enPassantColumn);
+        ChessRules.HandleCastling(newMove, pieceIndex, board);
 
-        if (BoardStateData.board[newPos.y, newPos.x] != 0)
+        if (board[newPos.y, newPos.x] != 0)
             newMove.MoveSpeciality = MoveSpeciality.isCapture;
 
-        BoardStateData.board[newPos.y, newPos.x] = BoardStateData.board[pos.y, pos.x];
-        BoardStateData.board[pos.y, pos.x] = 0;
+        board[newPos.y, newPos.x] = board[pos.y, pos.x];
+        board[pos.y, pos.x] = 0;
 
         //check double pawn move for enpassant
         if (ChessRules.IsPawn(pieceIndex) && Mathf.Abs(newPos.y - pos.y) == 2)
@@ -45,17 +46,47 @@ public class ChessGameStateModel : MonoBehaviour
         if (ChessRules.IsKing(pieceIndex) || ChessRules.IsRook(pieceIndex))
             UpdateRookCastlingRights(pos, pieceIndex);
 
-        bool opponentInCheck = ChessRules.IsChecked(!BoardStateData.isWhiteTurn,
+        if (ChessRules.IsPawn(pieceIndex) && (newPos.y == 0 || newPos.y == 7))
+        {
+            newMove.MoveSpeciality = MoveSpeciality.isPromotion;
+            return newMove;
+        }
+
+        UpdateGameState(newMove);
+        return newMove;
+    }
+
+    public BoardStateData PromotePawn(Vector2Int pos, int promotionPieceIndex)
+    {
+        BoardStateData.board[pos.y, pos.x] = promotionPieceIndex;
+        BoardStateData.lastMove.promotionPieceIndex = promotionPieceIndex;
+        BoardStateData.lastMove.pieceIndex = promotionPieceIndex;
+        UpdateGameState(BoardStateData.lastMove, !BoardStateData.isWhiteTurn);
+        return BoardStateData;
+    }
+
+    private void UpdateGameState(MoveData newMove, bool? opponentTurn = null)
+    {
+        bool checkingPlayer = opponentTurn ?? !BoardStateData.isWhiteTurn;
+
+        bool opponentInCheck = ChessRules.IsChecked(!checkingPlayer,
             BoardStateData.board, BoardStateData.castleMoved, BoardStateData.enPassantColumn);
 
         if (opponentInCheck)
         {
-            Debug.Log("Check");
             newMove.MoveSpeciality = MoveSpeciality.isCheck;
+            
+            if (ChessRules.IsCheckMate(!checkingPlayer, BoardStateData.board, BoardStateData.castleMoved, BoardStateData.enPassantColumn))
+            {
+                newMove.gameState = checkingPlayer ? GameState.WhiteCheckmate : GameState.BlackCheckmate;
+            }
+        }
+        else
+        {
+            if (ChessRules.IsStalemate(!checkingPlayer, BoardStateData.board, BoardStateData.castleMoved, BoardStateData.enPassantColumn))
+                newMove.gameState = GameState.Stalemate;
         }
 
-
-        return newMove;
     }
 
     private void UpdateRookCastlingRights(Vector2Int pos, int pieceIndex)

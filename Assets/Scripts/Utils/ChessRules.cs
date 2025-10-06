@@ -43,7 +43,6 @@ public static class ChessRules
         tempBoard[pos.y, pos.x] = 0;
 
         HandleEnPassant(moveData, currentPiece, tempBoard, boardState.enPassantColumn);
-
         HandleCastling(moveData, currentPiece, tempBoard);
 
         return !IsChecked(isWhiteTurn, tempBoard, boardState.castleMoved, boardState.enPassantColumn);
@@ -148,6 +147,79 @@ public static class ChessRules
         });
 
         return isChecked;
+    }
+
+    // should only be called after IsChecked
+    public static bool IsCheckMate(bool whiteTurn, int[,] board, bool[,] castleMoved = null, int enPassantColumn = -1)
+    {
+        bool isMate = true;
+        ConverterUtils.ForEachSquare((row, col) =>
+        {
+            if (!isMate) return;
+
+            int pieceIndex = board[row, col];
+            if (pieceIndex != 0 && IsWhitePiece(new Vector2Int(col, row), board) == whiteTurn)
+            {
+                ConverterUtils.ForEachSquare((targetRow, targetCol) =>
+                {
+                    if (!isMate) return;
+
+                    MoveData testMove = new MoveData(new Vector2Int(col, row), new Vector2Int(targetCol, targetRow), pieceIndex);
+                    
+                    BoardStateData testState = new BoardStateData
+                    {
+                        board = board,
+                        castleMoved = castleMoved ?? new bool[2,2],
+                        enPassantColumn = enPassantColumn,
+                        isWhiteTurn = whiteTurn
+                    };
+
+                    if (CanPieceMoveToPosition(testState, testMove))
+                    {
+                        isMate = false; // Found a legal move, not checkmate
+                    }
+                });
+            }
+        });
+
+        return isMate;
+    }
+
+    public static bool IsStalemate(bool whiteTurn, int[,] board, bool[,] castleMoved = null, int enPassantColumn = -1)
+    {
+        bool hasLegalMove = false;
+
+        // Check if the current player has any legal moves
+        ConverterUtils.ForEachSquare((row, col) =>
+        {
+            if (hasLegalMove) return;
+
+            int piece = board[row, col];
+            if (piece == 0 || IsWhitePiece(new Vector2Int(col, row), board) != whiteTurn) return; // empty or enemy
+
+            // check all possible squares for a move
+            ConverterUtils.ForEachSquare((targetRow, targetCol) =>
+            {
+                if (hasLegalMove) return;
+
+                MoveData testMove = new MoveData(new Vector2Int(col, row), new Vector2Int(targetCol, targetRow), piece);
+                
+                BoardStateData testState = new BoardStateData
+                {
+                    board = board,
+                    castleMoved = castleMoved ?? new bool[2,2],
+                    enPassantColumn = enPassantColumn,
+                    isWhiteTurn = whiteTurn
+                };
+
+                if (CanPieceMoveToPosition(testState, testMove))
+                {
+                    hasLegalMove = true;
+                }
+            });
+        });
+
+        return !hasLegalMove;
     }
 
     public static bool SquareUnderAttack(Vector2Int pos, bool whiteTurn, int[,] board, bool[,] castleMoved = null, int enPassantColumn = -1)
