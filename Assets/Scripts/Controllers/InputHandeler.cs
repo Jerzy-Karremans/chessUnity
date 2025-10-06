@@ -18,6 +18,7 @@ public class InputHandeler : MonoBehaviour
 
     void Update()
     {
+        if (GameSettingsData.gameOver) return;
         if (Input.GetMouseButtonDown(0))
             HandleMouseDown();
         else if (Input.GetMouseButtonUp(0))

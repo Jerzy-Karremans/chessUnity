@@ -50,7 +50,7 @@ public class GameController : MonoBehaviour
     {
         yield return new WaitForSeconds(0.5f); // Small delay for better UX
         MoveData randoMove = ChessGameStateModel.MakeAIMove();
-        OnPieceMoved(randoMove.pos, randoMove.newPos);
+        OnPieceMoved(randoMove.pos, randoMove.newPos, true);
         opponentThinking = false;
     }
 
@@ -74,7 +74,7 @@ public class GameController : MonoBehaviour
         return true;
     }
 
-    public void OnPieceMoved(Vector2Int pos, Vector2Int newPos)
+    public void OnPieceMoved(Vector2Int pos, Vector2Int newPos, bool isAi = false)
     {
         BoardRenderer.ClearPossibleMovesIndicator();
 
@@ -89,6 +89,11 @@ public class GameController : MonoBehaviour
         if (lastMove.MoveSpeciality == MoveSpeciality.isPromotion)
         {
             promotionPos = newPos;
+            if (isAi)
+            {
+                OnPromotionChoice(updatedBoard.isWhiteTurn ? 10 : 4, null);
+                return;
+            }
             awaitingPromotion = true;
             UIRenderer.RenderPromotionDialog(!updatedBoard.isWhiteTurn); // Previous player's color
             return; // Don't complete the turn yet
