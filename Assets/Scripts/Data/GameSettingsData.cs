@@ -7,6 +7,7 @@ public enum EnemyType
 
 public static class GameSettingsData
 {
-    public static EnemyType enemyType;
+    public static EnemyType enemyType = EnemyType.Bot;
     public static bool playingAsWhite = true;
+    public static bool gameOver = false;
 }

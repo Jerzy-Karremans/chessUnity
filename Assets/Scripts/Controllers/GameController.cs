@@ -33,13 +33,16 @@ public class GameController : MonoBehaviour
 
     void Update()
     {
-        if (opponentThinking == false &&
-            !awaitingPromotion &&
-            GameSettingsData.playingAsWhite != ChessGameStateModel.GetIswhiteTurn() && 
-            !ChessGameStateModel.IsGameOver())
+        if (GameSettingsData.enemyType == EnemyType.Bot)
         {
-            opponentThinking = true;
-            StartCoroutine(MakeAIMoveWithDelay());
+            if (opponentThinking == false &&
+            !awaitingPromotion &&
+            GameSettingsData.playingAsWhite != ChessGameStateModel.GetIswhiteTurn() &&
+            !ChessGameStateModel.IsGameOver())
+            {
+                opponentThinking = true;
+                StartCoroutine(MakeAIMoveWithDelay());
+            }
         }
     }
 
@@ -120,7 +123,10 @@ public class GameController : MonoBehaviour
         UIRenderer.SetTurnText(updatedBoard.isWhiteTurn);
 
         if (lastMove.gameState != GameState.Default)
+        {
+            GameSettingsData.gameOver = true;
             AudioRenderer.PlayEndGameSound(GameSettingsData.playingAsWhite == !updatedBoard.isWhiteTurn);
+        }
     }
 
     void OnDestroy()
